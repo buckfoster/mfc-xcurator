@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MFC X Curator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --blue-dark: #143655;
+      --blue-medium: #6294B9;
+      --blue-muted: #3B6587;
+      --cream: #F9E4C6;
+      --cream-dark: #E8D0AD;
+      --cream-light: #faf4e8;
+      --text-dark: #143655;
+      --highlight: #FFF72B;
+      --green: #2d8a4e;
+      --red: #c0392b;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text-dark);
+      min-height: 100vh;
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 50px, rgba(98, 148, 185, 0.4) 50px, rgba(98, 148, 185, 0.4) 100px),
+        repeating-linear-gradient(90deg, transparent, transparent 50px, rgba(98, 148, 185, 0.4) 50px, rgba(98, 148, 185, 0.4) 100px),
+        linear-gradient(180deg, #F9E4C6, #F9E4C6);
+      background-attachment: fixed;
+    }
+
+    /* Header */
+    .header {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+      padding: 12px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 24px rgba(20, 54, 85, 0.1);
+    }
+
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .header h1 {
+      font-family: 'Archivo Black', sans-serif;
+      font-size: 1.2rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--blue-dark);
+      margin-right: auto;
+    }
+
+    .filters {
+      display: flex;
+      gap: 6px;
+    }
+
+    .filter-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 2px solid var(--blue-dark);
+      background: transparent;
+      color: var(--blue-dark);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover { background: rgba(20, 54, 85, 0.1); }
+    .filter-btn.active { background: var(--blue-dark); color: white; }
+
+    .post-count {
+      font-size: 0.8rem;
+      color: var(--blue-muted);
+      font-weight: 500;
+    }
+
+    /* Filter bar (status + sort) */
+    .filter-bar {
+      max-width: 1400px;
+      margin: 16px auto 0;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .filter-bar label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--blue-muted);
+    }
+
+    .status-filters {
+      display: flex;
+      gap: 6px;
+    }
+
+    .status-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 16px;
+      border: 2px solid var(--blue-medium);
+      background: transparent;
+      color: var(--blue-medium);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .status-btn:hover { background: rgba(98, 148, 185, 0.1); }
+    .status-btn.active { background: var(--blue-medium); color: white; }
+
+    .sort-select {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.8rem;
+      padding: 6px 12px;
+      border-radius: 12px;
+      border: 2px solid rgba(20, 54, 85, 0.2);
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--text-dark);
+      outline: none;
+      cursor: pointer;
+      margin-left: auto;
+    }
+
+    /* Grid */
+    .grid {
+      max-width: 1400px;
+      margin: 16px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    /* Card */
+    .card {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      box-shadow: 0 4px 24px rgba(20, 54, 85, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(20, 54, 85, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    }
+
+    .card.dismissed { opacity: 0.5; }
+
+    .card-media {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      background: var(--cream-dark);
+      cursor: pointer;
+    }
+
+    .card-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.3s;
+    }
+
+    .card:hover .card-media img { transform: scale(1.03); }
+
+    .media-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(20, 54, 85, 0.85);
+      color: white;
+      font-family: 'Archivo Black', sans-serif;
+      font-size: 0.7rem;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      border-radius: 8px;
+    }
+
+    .card-info {
+      padding: 12px 14px;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .card-handle {
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--blue-dark);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-text {
+      font-size: 0.78rem;
+      color: var(--blue-muted);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .card-stats {
+      display: flex;
+      gap: 12px;
+      font-size: 0.72rem;
+      color: var(--blue-muted);
+      margin-bottom: 10px;
+    }
+
+    .stat { display: flex; align-items: center; gap: 3px; }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .action-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .save-btn {
+      background: var(--blue-dark);
+      color: white;
+      flex: 1;
+    }
+
+    .save-btn:hover { background: var(--blue-muted); }
+    .save-btn.saved { background: var(--green); cursor: default; }
+    .save-btn.saving { background: var(--blue-medium); cursor: wait; }
+
+    .dismiss-btn {
+      background: transparent;
+      color: var(--blue-muted);
+      border: 2px solid rgba(20, 54, 85, 0.15);
+    }
+
+    .dismiss-btn:hover { background: rgba(20, 54, 85, 0.06); }
+    .dismiss-btn.dismissed { color: var(--red); border-color: var(--red); cursor: default; opacity: 0.6; }
+
+    .view-btn {
+      background: transparent;
+      color: var(--blue-medium);
+      border: 2px solid var(--blue-medium);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .view-btn:hover { background: rgba(98, 148, 185, 0.1); }
+
+    /* Lightbox */
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(0, 0, 0, 0.85);
+      justify-content: center;
+      align-items: center;
+      cursor: zoom-out;
+    }
+
+    .lightbox.open { display: flex; }
+
+    .lightbox img, .lightbox video {
+      max-width: 90vw;
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+
+    .lightbox-counter {
+      position: absolute;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-weight: 600;
+      font-size: 0.9rem;
+      background: rgba(0,0,0,0.5);
+      padding: 6px 16px;
+      border-radius: 20px;
+    }
+
+    /* Load More */
+    .load-more-wrap {
+      text-align: center;
+      padding: 32px 24px 48px;
+    }
+
+    .load-more-btn {
+      font-family: 'Archivo Black', sans-serif;
+      font-size: 0.9rem;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 14px 40px;
+      border-radius: 30px;
+      border: none;
+      background: var(--blue-dark);
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .load-more-btn:hover {
+      box-shadow: 0 4px 12px rgba(20, 54, 85, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .load-more-btn:disabled { opacity: 0.6; cursor: wait; }
+
+    /* Status messages */
+    .status {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--blue-muted);
+      font-size: 1rem;
+    }
+
+    .status.error { color: var(--red); }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 24px;
+    }
+
+    .empty-state h2 {
+      font-family: 'Archivo Black', sans-serif;
+      color: var(--blue-dark);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p { color: var(--blue-muted); }
+
+    @media (max-width: 480px) {
+      .header h1 { font-size: 1rem; }
+      .header-inner { gap: 10px; }
+      .grid { padding: 0 12px; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+      .card-info { padding: 8px 10px; }
+      .card-handle { font-size: 0.8rem; }
+      .card-text { font-size: 0.72rem; }
+      .action-btn { padding: 5px 8px; font-size: 0.7rem; }
+      .filter-bar { padding: 0 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-inner">
+      <h1>X Curator</h1>
+      <div class="filters">
+        <button class="filter-btn active" data-type="">All</button>
+        <button class="filter-btn" data-type="photo">Photos</button>
+        <button class="filter-btn" data-type="video">Videos</button>
+      </div>
+      <span class="post-count" id="postCount"></span>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <label>Status:</label>
+    <div class="status-filters">
+      <button class="status-btn active" data-status="new">New</button>
+      <button class="status-btn" data-status="saved">Saved</button>
+      <button class="status-btn" data-status="dismissed">Dismissed</button>
+      <button class="status-btn" data-status="all">All</button>
+    </div>
+    <select class="sort-select" id="sortSelect">
+      <option value="date">Newest First</option>
+      <option value="engagement">Most Liked</option>
+    </select>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="status" id="status" style="display:none"></div>
+  <div class="load-more-wrap" id="loadMoreWrap" style="display:none">
+    <button class="load-more-btn" id="loadMoreBtn">Load More</button>
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-counter" id="lightboxCounter"></div>
+    <img id="lightboxImg" src="" alt="">
+  </div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const statusEl = document.getElementById('status');
+    const loadMoreWrap = document.getElementById('loadMoreWrap');
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    const postCount = document.getElementById('postCount');
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightboxImg');
+    const lightboxCounter = document.getElementById('lightboxCounter');
+    const sortSelect = document.getElementById('sortSelect');
+
+    let currentType = '';
+    let currentStatus = 'new';
+    let currentSort = 'date';
+    let currentPage = 1;
+    let loading = false;
+    let totalCount = 0;
+    let loadedCount = 0;
+
+    // Media type filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelector('.filter-btn.active').classList.remove('active');
+        btn.classList.add('active');
+        currentType = btn.dataset.type;
+        resetAndLoad();
+      });
+    });
+
+    // Status filter buttons
+    document.querySelectorAll('.status-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelector('.status-btn.active').classList.remove('active');
+        btn.classList.add('active');
+        currentStatus = btn.dataset.status;
+        resetAndLoad();
+      });
+    });
+
+    // Sort selector
+    sortSelect.addEventListener('change', () => {
+      currentSort = sortSelect.value;
+      resetAndLoad();
+    });
+
+    loadMoreBtn.addEventListener('click', () => loadTweets());
+
+    // Lightbox
+    lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+    document.addEventListener('keydown', (e) => {
+      if (!lightbox.classList.contains('open')) return;
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    function openLightbox(url) {
+      lightboxImg.src = url;
+      lightboxCounter.textContent = '';
+      lightbox.classList.add('open');
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      lightboxImg.src = '';
+    }
+
+    function resetAndLoad() {
+      currentPage = 1;
+      loadedCount = 0;
+      totalCount = 0;
+      grid.innerHTML = '';
+      loadMoreWrap.style.display = 'none';
+      loadTweets();
+    }
+
+    async function loadTweets() {
+      if (loading) return;
+      loading = true;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Loading...';
+
+      if (loadedCount === 0) {
+        statusEl.style.display = 'block';
+        statusEl.className = 'status';
+        statusEl.textContent = 'Loading...';
+      }
+
+      try {
+        const params = new URLSearchParams({
+          status: currentStatus,
+          sort: currentSort,
+          page: String(currentPage),
+          limit: '40',
+        });
+        if (currentType) params.set('media_type', currentType);
+
+        const res = await fetch(`/api/tweets?${params}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const tweets = data.tweets || [];
+        totalCount = data.total || 0;
+
+        if (tweets.length === 0 && loadedCount === 0) {
+          statusEl.style.display = 'block';
+          statusEl.className = 'status';
+          statusEl.innerHTML = '<div class="empty-state"><h2>No tweets found</h2><p>No scraped tweets match these filters. Try changing the status or media type filter.</p></div>';
+          loadMoreWrap.style.display = 'none';
+          postCount.textContent = '';
+          return;
+        }
+
+        statusEl.style.display = 'none';
+        tweets.forEach(tweet => {
+          loadedCount++;
+          grid.appendChild(createCard(tweet));
+        });
+
+        currentPage++;
+        postCount.textContent = `${loadedCount} of ${totalCount}`;
+
+        if (loadedCount < totalCount) {
+          loadMoreWrap.style.display = 'block';
+        } else {
+          loadMoreWrap.style.display = 'none';
+        }
+      } catch (err) {
+        console.error('Load error:', err);
+        if (loadedCount === 0) {
+          statusEl.style.display = 'block';
+          statusEl.className = 'status error';
+          statusEl.textContent = `Error: ${err.message}`;
+        }
+      } finally {
+        loading = false;
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Load More';
+      }
+    }
+
+    function createCard(tweet) {
+      const card = document.createElement('div');
+      card.className = 'card' + (tweet.status === 'dismissed' ? ' dismissed' : '');
+      card.dataset.id = tweet.id;
+
+      const isVideo = tweet.media_type === 'video' || tweet.media_type === 'animated_gif';
+      const thumbUrl = tweet.thumbnailUrl || tweet.mediaUrl;
+      const badgeLabel = tweet.media_type === 'video' ? 'VIDEO' : tweet.media_type === 'animated_gif' ? 'GIF' : '';
+
+      card.innerHTML = `
+        <div class="card-media">
+          ${thumbUrl ? `<img src="${esc(thumbUrl)}" alt="" loading="lazy">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--blue-muted)">No preview</div>'}
+          ${badgeLabel ? `<div class="media-badge">${badgeLabel}</div>` : ''}
+        </div>
+        <div class="card-info">
+          <div class="card-top">
+            <span class="card-handle">@${esc(tweet.author_handle || '')}</span>
+          </div>
+          ${tweet.text ? `<div class="card-text">${esc(tweet.text)}</div>` : ''}
+          <div class="card-stats">
+            <span class="stat">${fmtNum(tweet.like_count)} likes</span>
+            <span class="stat">${fmtNum(tweet.retweet_count)} RTs</span>
+            <span class="stat">${fmtNum(tweet.view_count)} views</span>
+          </div>
+          <div class="card-actions">
+            <button class="action-btn save-btn ${tweet.status === 'saved' ? 'saved' : ''}" data-id="${tweet.id}">${tweet.status === 'saved' ? 'Saved' : 'Save to Posts'}</button>
+            <button class="action-btn dismiss-btn ${tweet.status === 'dismissed' ? 'dismissed' : ''}" data-id="${tweet.id}">${tweet.status === 'dismissed' ? 'Dismissed' : 'Dismiss'}</button>
+            ${safeUrl(tweet.tweet_url) ? `<a class="action-btn view-btn" href="${esc(safeUrl(tweet.tweet_url))}" target="_blank" rel="noopener">View</a>` : ''}
+          </div>
+        </div>
+      `;
+
+      // Click thumbnail to open lightbox (photos) or view on X (videos)
+      card.querySelector('.card-media').addEventListener('click', () => {
+        if (isVideo && safeUrl(tweet.tweet_url)) {
+          window.open(safeUrl(tweet.tweet_url), '_blank');
+        } else if (tweet.mediaUrl) {
+          openLightbox(tweet.mediaUrl);
+        }
+      });
+
+      // Save button
+      const saveBtn = card.querySelector('.save-btn');
+      saveBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (saveBtn.classList.contains('saved') || saveBtn.classList.contains('saving')) return;
+
+        saveBtn.classList.add('saving');
+        saveBtn.textContent = 'Saving...';
+
+        try {
+          const res = await fetch(`/api/save/${tweet.id}`, { method: 'POST' });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+          }
+
+          saveBtn.classList.remove('saving');
+          saveBtn.classList.add('saved');
+          saveBtn.textContent = 'Saved';
+        } catch (err) {
+          console.error('Save error:', err);
+          saveBtn.classList.remove('saving');
+          saveBtn.textContent = 'Error';
+          setTimeout(() => { saveBtn.textContent = 'Save to Posts'; }, 2000);
+        }
+      });
+
+      // Dismiss button
+      const dismissBtn = card.querySelector('.dismiss-btn');
+      dismissBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (dismissBtn.classList.contains('dismissed')) return;
+
+        try {
+          const res = await fetch(`/api/dismiss/${tweet.id}`, { method: 'POST' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+          dismissBtn.classList.add('dismissed');
+          dismissBtn.textContent = 'Dismissed';
+          card.classList.add('dismissed');
+        } catch (err) {
+          console.error('Dismiss error:', err);
+        }
+      });
+
+      return card;
+    }
+
+    function esc(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function safeUrl(str) {
+      if (!str) return '';
+      try {
+        const u = new URL(str);
+        if (u.hostname === 'x.com' || u.hostname === 'twitter.com' || u.hostname.endsWith('.twitter.com')) return str;
+      } catch {}
+      return '';
+    }
+
+    function fmtNum(n) {
+      if (n == null) return '0';
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+      return String(n);
+    }
+
+    // Initial load
+    loadTweets();
+  </script>
+</body>
+</html>

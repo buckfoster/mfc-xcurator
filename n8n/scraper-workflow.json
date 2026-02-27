@@ -1,0 +1,217 @@
+{
+  "name": "MFC X List Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 6 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "mfc-x-scraper",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Manual Test Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200],
+      "webhookId": "mfc-x-scraper"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch tweets from a Twitter List via twitterapi.io\n// Paginates through results, extracts media items\n\nconst API_KEY = $env.MFC_TWITTERAPI_KEY;\nconst LIST_ID = '1480080756906999808';\nconst API_BASE = 'https://api.twitterapi.io/twitter/list/tweets';\nconst ALLOWED_CDN = ['pbs.twimg.com', 'video.twimg.com'];\n\nif (!API_KEY) throw new Error('MFC_TWITTERAPI_KEY not set');\n\nfunction isAllowedMediaUrl(url) {\n  try {\n    const u = new URL(url);\n    return ALLOWED_CDN.some(h => u.hostname === h || u.hostname.endsWith('.' + h));\n  } catch { return false; }\n}\n\nconst allItems = [];\nlet cursor = null;\nlet pages = 0;\nconst MAX_PAGES = 15; // Safety limit (~300 tweets)\n\ndo {\n  const params = new URLSearchParams({ listId: LIST_ID });\n  if (cursor) params.set('cursor', cursor);\n\n  const response = await fetch(`${API_BASE}?${params}`, {\n    headers: { 'X-API-Key': API_KEY }\n  });\n\n  if (!response.ok) {\n    const text = await response.text();\n    throw new Error(`twitterapi.io ${response.status}: ${text}`);\n  }\n\n  const data = await response.json();\n  const tweets = data.tweets || [];\n\n  for (const tweet of tweets) {\n    // Skip tweets without media\n    if (!tweet.extendedEntities?.media?.length) continue;\n\n    const mediaItems = tweet.extendedEntities.media;\n    for (let i = 0; i < mediaItems.length; i++) {\n      const m = mediaItems[i];\n      let mediaUrl = '';\n      let mediaType = m.type || 'photo'; // photo, video, animated_gif\n\n      if (mediaType === 'photo') {\n        mediaUrl = m.media_url_https || m.media_url || '';\n      } else if (mediaType === 'video' || mediaType === 'animated_gif') {\n        // Pick highest bitrate MP4 variant\n        const variants = (m.video_info?.variants || [])\n          .filter(v => v.content_type === 'video/mp4')\n          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));\n        mediaUrl = variants[0]?.url || '';\n      }\n\n      if (!mediaUrl || !isAllowedMediaUrl(mediaUrl)) continue;\n\n      allItems.push({\n        json: {\n          tweet_id: tweet.id,\n          media_index: i,\n          tweet_url: `https://x.com/${tweet.author?.userName || 'i'}/status/${tweet.id}`,\n          author_handle: tweet.author?.userName || '',\n          author_name: tweet.author?.name || '',\n          text: tweet.text || '',\n          media_url: mediaUrl,\n          media_type: mediaType,\n          like_count: tweet.likeCount || 0,\n          retweet_count: tweet.retweetCount || 0,\n          view_count: tweet.viewCount || 0,\n          tweeted_at: tweet.createdAt || null\n        }\n      });\n    }\n  }\n\n  cursor = data.has_next_page ? data.next_cursor : null;\n  pages++;\n} while (cursor && pages < MAX_PAGES);\n\nif (allItems.length === 0) {\n  return [{ json: { _empty: true, message: `Scraped ${pages} pages, no new media found` } }];\n}\n\nreturn allItems;"
+      },
+      "id": "fetch-tweets",
+      "name": "Fetch List Tweets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-media",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-items",
+      "name": "Has Media Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "url": "=https://directus.manlyfeet.club/items/scraped_tweets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "filter[tweet_id][_eq]", "value": "={{ $json.tweet_id }}" },
+            { "name": "filter[media_index][_eq]", "value": "={{ $json.media_index }}" },
+            { "name": "fields[]", "value": "id" },
+            { "name": "limit", "value": "1" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-dedup",
+      "name": "Check Dedup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "directus-auth",
+          "name": "Directus API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "is-new",
+              "leftValue": "={{ $json.data.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-new",
+      "name": "Is New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [940, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Fetch List Tweets').item.json.media_url }}",
+        "options": {
+          "response": { "response": { "responseFormat": "file" } }
+        }
+      },
+      "id": "download-media",
+      "name": "Download Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://directus.manlyfeet.club/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "contentType": "multipart-form-data",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "file", "parameterType": "formBinaryData", "inputDataFieldName": "data" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "upload-to-directus",
+      "name": "Upload to Directus Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1380, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "directus-auth",
+          "name": "Directus API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://directus.manlyfeet.club/items/scraped_tweets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tweet_id\": {{ JSON.stringify($('Fetch List Tweets').item.json.tweet_id) }},\n  \"media_index\": {{ $('Fetch List Tweets').item.json.media_index }},\n  \"tweet_url\": {{ JSON.stringify($('Fetch List Tweets').item.json.tweet_url) }},\n  \"author_handle\": {{ JSON.stringify($('Fetch List Tweets').item.json.author_handle) }},\n  \"author_name\": {{ JSON.stringify($('Fetch List Tweets').item.json.author_name) }},\n  \"text\": {{ JSON.stringify($('Fetch List Tweets').item.json.text) }},\n  \"media\": \"{{ $json.data.id }}\",\n  \"media_type\": {{ JSON.stringify($('Fetch List Tweets').item.json.media_type) }},\n  \"like_count\": {{ $('Fetch List Tweets').item.json.like_count }},\n  \"retweet_count\": {{ $('Fetch List Tweets').item.json.retweet_count }},\n  \"view_count\": {{ $('Fetch List Tweets').item.json.view_count }},\n  \"tweeted_at\": {{ $('Fetch List Tweets').item.json.tweeted_at ? JSON.stringify($('Fetch List Tweets').item.json.tweeted_at) : 'null' }},\n  \"scraped_at\": \"{{ $now.toISO() }}\",\n  \"status\": \"new\"\n}",
+        "options": {}
+      },
+      "id": "create-record",
+      "name": "Create Scraped Tweet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1600, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "directus-auth",
+          "name": "Directus API Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 6 AM": {
+      "main": [[{ "node": "Fetch List Tweets", "type": "main", "index": 0 }]]
+    },
+    "Manual Test Trigger": {
+      "main": [[{ "node": "Fetch List Tweets", "type": "main", "index": 0 }]]
+    },
+    "Fetch List Tweets": {
+      "main": [[{ "node": "Has Media Items?", "type": "main", "index": 0 }]]
+    },
+    "Has Media Items?": {
+      "main": [
+        [{ "node": "Check Dedup", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Check Dedup": {
+      "main": [[{ "node": "Is New?", "type": "main", "index": 0 }]]
+    },
+    "Is New?": {
+      "main": [
+        [{ "node": "Download Media", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Download Media": {
+      "main": [[{ "node": "Upload to Directus Files", "type": "main", "index": 0 }]]
+    },
+    "Upload to Directus Files": {
+      "main": [[{ "node": "Create Scraped Tweet", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  }
+}
