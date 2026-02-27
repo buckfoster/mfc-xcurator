@@ -56,7 +56,7 @@ async function getTweets({ status, mediaType, sort, page = 1, limit = 40 } = {})
       mediaUrl: t.media?.filename_disk ? `${MEDIA_URL}/${t.media.filename_disk}` : null,
       thumbnailUrl: t.media?.filename_disk ? `${DIRECTUS_URL}/assets/${t.media.id}?width=400&height=400&fit=cover` : null,
     })),
-    total: data.meta?.filter_count || data.meta?.total_count || 0,
+    total: data.meta?.filter_count ?? data.meta?.total_count ?? 0,
   };
 }
 
