@@ -16,66 +16,121 @@
       "name": "Daily 6 AM",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
         "httpMethod": "GET",
         "path": "mfc-x-scraper",
-        "responseMode": "lastNode",
+        "responseMode": "onReceived",
         "options": {}
       },
       "id": "webhook-trigger",
       "name": "Manual Test Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 200],
+      "position": [
+        0,
+        200
+      ],
       "webhookId": "mfc-x-scraper"
     },
     {
       "parameters": {
-        "jsCode": "// Fetch tweets from a Twitter List via twitterapi.io\n// Paginates through results, extracts media items\n\nconst API_KEY = $env.MFC_TWITTERAPI_KEY;\nconst LIST_ID = '1480080756906999808';\nconst API_BASE = 'https://api.twitterapi.io/twitter/list/tweets';\nconst ALLOWED_CDN = ['pbs.twimg.com', 'video.twimg.com'];\n\nif (!API_KEY) throw new Error('MFC_TWITTERAPI_KEY not set');\n\nfunction isAllowedMediaUrl(url) {\n  try {\n    const u = new URL(url);\n    return ALLOWED_CDN.some(h => u.hostname === h || u.hostname.endsWith('.' + h));\n  } catch { return false; }\n}\n\nconst allItems = [];\nlet cursor = null;\nlet pages = 0;\nconst MAX_PAGES = 15; // Safety limit (~300 tweets)\n\ndo {\n  const params = new URLSearchParams({ listId: LIST_ID });\n  if (cursor) params.set('cursor', cursor);\n\n  const response = await fetch(`${API_BASE}?${params}`, {\n    headers: { 'X-API-Key': API_KEY }\n  });\n\n  if (!response.ok) {\n    const text = await response.text();\n    throw new Error(`twitterapi.io ${response.status}: ${text}`);\n  }\n\n  const data = await response.json();\n  const tweets = data.tweets || [];\n\n  for (const tweet of tweets) {\n    // Skip tweets without media\n    if (!tweet.extendedEntities?.media?.length) continue;\n\n    const mediaItems = tweet.extendedEntities.media;\n    for (let i = 0; i < mediaItems.length; i++) {\n      const m = mediaItems[i];\n      let mediaUrl = '';\n      let mediaType = m.type || 'photo'; // photo, video, animated_gif\n\n      if (mediaType === 'photo') {\n        mediaUrl = m.media_url_https || m.media_url || '';\n      } else if (mediaType === 'video' || mediaType === 'animated_gif') {\n        // Pick highest bitrate MP4 variant\n        const variants = (m.video_info?.variants || [])\n          .filter(v => v.content_type === 'video/mp4')\n          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));\n        mediaUrl = variants[0]?.url || '';\n      }\n\n      if (!mediaUrl || !isAllowedMediaUrl(mediaUrl)) continue;\n\n      allItems.push({\n        json: {\n          tweet_id: tweet.id,\n          media_index: i,\n          tweet_url: `https://x.com/${tweet.author?.userName || 'i'}/status/${tweet.id}`,\n          author_handle: tweet.author?.userName || '',\n          author_name: tweet.author?.name || '',\n          text: tweet.text || '',\n          media_url: mediaUrl,\n          media_type: mediaType,\n          like_count: tweet.likeCount || 0,\n          retweet_count: tweet.retweetCount || 0,\n          view_count: tweet.viewCount || 0,\n          tweeted_at: tweet.createdAt || null\n        }\n      });\n    }\n  }\n\n  cursor = data.has_next_page ? data.next_cursor : null;\n  pages++;\n} while (cursor && pages < MAX_PAGES);\n\nif (allItems.length === 0) {\n  return [{ json: { _empty: true, message: `Scraped ${pages} pages, no new media found` } }];\n}\n\nreturn allItems;"
+        "jsCode": "// Build batched search queries from the handle list\n// Each query: (from:h1 OR from:h2 OR ...) filter:media\n// Max ~500 chars per query\n\nvar HANDLES = [\"0b3y3d\", \"0SirImpact0\", \"14lxsq\", \"1Lord_Kingsley\", \"2dominancebros\", \"8inchchav\", \"_AlphaPersian\", \"_Dillon_A\", \"_SirSteel\", \"A1terDom\", \"AHungIndian\", \"aires98\", \"alejandro_rcjb\", \"AlexanderReid0\", \"Alexgym23\", \"AlexJechev66359\", \"alph_aking\", \"Alpha7902\", \"Alpha_102_\", \"alpha_bigfoot\", \"alpha_god_james\", \"alpha_jackbr\", \"alpha_ty22\", \"AlphaAchill3s\", \"AlphaAlexT\", \"AlphaAndreas28\", \"alphaangelio\", \"AlphaArkay\", \"AlphaAxel1\", \"AlphaAzoura\", \"alphabanxx\", \"AlphaBeloto\", \"Alphabigmale\", \"AlphaBlueCollar\", \"AlphaBrad77566\", \"alphabrayden16\", \"alphabullalex\", \"alphacashdavid\", \"AlphaCole7\", \"alphacolexx\", \"AlphaColton47\", \"alphadaddyb1\", \"alphadazza18\", \"alphadev1221\", \"AlphaDomTom\", \"alphagod_gio\", \"alphagodale\", \"AlphaGodAleBU\", \"AlphaGodAlex\", \"alphagodber\", \"AlphaGodCzech\", \"AlphaGodDaniel\", \"AlphaGodJake\", \"alphagodjax\", \"alphagodjc6239\", \"Alphagodlukas\", \"Alphagodnoah\", \"AlphaGodSaint\", \"AlphaGodSam\", \"AlphaGodSandro\", \"alphagodsepanta\", \"AlphaGodShane\", \"AlphaGodWolf\", \"alphaharv\", \"AlphaHimeros\", \"AlphaInked\", \"AlphaJ1111\", \"Alphajackedd\", \"AlphaJames_\", \"alphajess3\", \"alphajockchi\", \"AlphaJoe33\", \"alphajohn\", \"AlphaJohn54\", \"AlphaJT_\", \"AlphaKb1\", \"alphaking333\", \"AlphaLeo08\", \"AlphaLeoD\", \"AlphaLerroy\", \"AlphaLukex1\", \"AlphaM48006\", \"ALPHAMAGADAD\", \"alphamalebrock\", \"Alphamaster1992\", \"alphamaster_ger\", \"alphamasterbeau\", \"alphamasterjax1\", \"AlphaMatty1\", \"AlphaMick_\", \"AlphaMike475\", \"AlphaMuscleGod5\", \"AlphaMuscleGod7\", \"AlphaMuscleZayn\", \"AlphaNickFeet\", \"AlphaPapiKocic\", \"AlphaPaul_UK\", \"AlphaPortuguese\", \"alpharichldn\", \"AlphaRoidzDaddy\", \"alpharory_\", \"alpharuthl3ss\", \"alphasach3tt\", \"AlphaSaiyan0\", \"alphascentralx\", \"alphasepanta\", \"AlphaSigmaTyler\", \"alphasolares\", \"AlphaStallion61\", \"AlphaStarDom\", \"AlphaSteveFD\", \"alphaT03\", \"AlphaTravis1\", \"AlphaTroy_\", \"alphaussieboy\", \"AlphaWill12\", \"AlphaWillkelman\", \"alphazach_\", \"AlphaZack14\", \"Andrea9466\", \"anthonte92\", \"ApexAlphaPat\", \"ApolloSteelDom\", \"Aquiles_Alpha\", \"AquilesMuscle\", \"ArbanCash\", \"AsherJaimes\", \"AthleticAlpha\", \"auscashmaster04\", \"AussieCashKings\", \"austinhubs\", \"AustinMilla3\", \"austintw_tter03\", \"AzrielBeast\", \"BackDomador\", \"bbad4real\", \"BBadAlpha\", \"bbadalpha4real\", \"bdogfootball8\", \"BenjEd64\", \"BicepRahman\", \"Big_kenny250\", \"bigbossalpha69\", \"BigFootDaddy69\", \"BigHamm45331127\", \"bigJayTheAlpha\", \"BigJxxxx\", \"BigMasterZeke\", \"biigjs1\", \"BjornAndrey\", \"Bo55Mannzz14\", \"Boss_Dan628\", \"BossDane87\", \"BOSSDAV333__\", \"BossJames000\", \"BOSSLUCIFER_\", \"Boy23Beefy84502\", \"BradKnox90\", \"britishsensei\", \"BroteroXX\", \"CallenColins\", \"captain__flex\", \"caramel_master\", \"caravanlad\", \"CarsinMaster\", \"Cash4MasterZ\", \"CashAlphaEric\", \"cashalphawolf\", \"CashAlphRicardo\", \"CASHDADDYSANTI\", \"cashdomleo\", \"CASHGODJ\", \"CASHGODJACOB\", \"cashgodjay\", \"cashgodjay2\", \"CashGodJustin\", \"cashgodspence\", \"CashkingJustin\", \"CashlordTriton\", \"CashMaster_Tom\", \"CashmasterAB\", \"CashMasterAlim\", \"CashMasterAndyy\", \"CashMasterD11\", \"cashmasterdave2\", \"cashmasterdeano\", \"CashMasterDK\", \"CashMasterFox\", \"cashmasterjohnn\", \"CashMasterJona\", \"cashmasterking4\", \"cashmastermyst\", \"CashmasterReed\", \"CASHMASTERTONY1\", \"CashmaterLucas\", \"CashTommyUK\", \"CASTLEKINGDOM3\", \"CDaddy11\", \"charliebex20\", \"CharlieEssex69\", \"ChavCharlieBoi1\", \"chestychase\", \"chill_alpha420\", \"ChrisStark101\", \"cmastergabe\", \"CMFelix7\", \"CMONEY121202\", \"ConrAlpha\", \"cuckcollectors\", \"CULTLEADERCADEN\", \"cuntryboy84\", \"daddy_jasonx\", \"DaddyAmori\", \"DanteKingAlpha\", \"DC_Alpha00\", \"dc_alpha2\", \"deaconlove8\", \"deekaesthetic\", \"dentin221\", \"Dewaltmasters\", \"DieselGodly\", \"DKALPHA_BackUp\", \"DKPghSports\", \"dominantda40876\", \"dominantdavid1\", \"DominantTattGOD\", \"DomLadMaster\", \"dommaster01\", \"DomMuscleGod1\", \"drbfoot\", \"elshredz\", \"englishfootgod\", \"erisbmw\", \"Execcash22\", \"FarsArian\", \"FdDragon25\", \"feedmemore857\", \"feetmasteralpha\", \"fhgsjsuvjshdn\", \"FIndkingsupreme\", \"findom1888\", \"findom_boss\", \"FindomAlphaGod1\", \"FindomAlphaOne\", \"FindomCaiden\", \"findomg0d\", \"findomgodk\", \"findomjason\", \"FindomJhon\", \"FindomKyros\", \"findomluis\", \"FindomMarrento\", \"FINDOMmasterES\", \"FindomPedro\", \"findomricardo\", \"findomsebastian\", \"FindomShawn\", \"FindomVinny\", \"Fit12G\", \"flarock165927\", \"flav66612\", \"flexmaster_g\", \"Fmoney007\", \"FndomJann\", \"footbaesd\", \"FootMasterBuck\", \"FrancisDomBro\", \"G0dJaden\", \"G0dJadenBackup\", \"GeorgeDom5\", \"GerMuscleBeast\", \"GFit227\", \"GhostLyfts\", \"gingerdom29\", \"gingermasterdan\", \"godfootmaster\", \"godhrv\", \"GodKytherionn\", \"godmattx\", \"GoonerRuiner\", \"gorillamasterx\", \"greygusss\", \"GustavoMaster96\", \"HanSultan90\", \"harrygoff87\", \"hazzag87\", \"Headmas9\", \"henri_thegod\", \"HenryCrain6\", \"HenryYo22759818\", \"hercules9871\", \"HoldenMastersX\", \"honcho_services\", \"HotShotScot\", \"HulkFootDom\", \"HungMaleFeet\", \"HunterX_777\", \"IAMFINDOMSAM\", \"ianbentzinger_\", \"ImMasterCharles\", \"InfantryMike1\", \"isaiah_lifts\", \"italiankinking\", \"itsalphaelliot\", \"itsyourdr_\", \"jack23_alpha\", \"JackEarnshaws\", \"Jackedfitness3\", \"Jakefrost___\", \"JamesATkhan\", \"JasonMasters54\", \"jay6ft5\", \"JBully2losers\", \"JDaddyAlpha\", \"JdTwonk\", \"Jeromegabriele0\", \"Jex114\", \"jkingg111\", \"jklxmasterr\", \"JMONEYaus\", \"JockGODOF\", \"Johannfndm\", \"John2timesss\", \"joshfit_\", \"jossalpha1\", \"jpfitlife\", \"k1ngharry1\", \"KaydenGodly\", \"Kevin240b\", \"kevprk\", \"King\", \"King_Carson1492\", \"KING_RAYY1\", \"KingAlphaDad\", \"KingAlphaRomero\", \"KingAndreCA\", \"KingBinxyy\", \"KingConnor96\", \"KingDaltonG\", \"kingdomwishlist\", \"KingEdoo_\", \"kingfetty20\", \"KingHurcules16\", \"KingIsaiahXL\", \"KingJak666\", \"KingKaiLuke\", \"kingmaddox_\", \"kingmaster_d\", \"kingmasteralex\", \"KingMnu28\", \"kingowen_II\", \"kingpersian\", \"KingRuthl3ss\", \"KingSirKraze\", \"KingSkaterFeet\", \"kingsmokezz\", \"kingspiderr1\", \"KingTO102\", \"KingTrixxyy\", \"kingvincennt\", \"KirkEWood1\", \"KlNGDYL27\", \"KyeCaden\", \"ladyemily666\", \"LDNalpha85\", \"Leonar57221000\", \"LeonGray2004\", \"LeoRoyaleXXX\", \"lewisrufff\", \"lockedsubpig\", \"lockerroomzane\", \"LoganLanexx\", \"lordallpha\", \"LoyalMasters\", \"LucasWhiteAlpha\", \"m89_christopher\", \"macromuscleman\", \"Maddox_Chara\", \"MajorMaster92\", \"Martinh694\", \"martinhodge225\", \"Master___Tom\", \"Master_Adonis1\", \"master_aglo\", \"master_blondy_\", \"Master_bouncing\", \"Master_Eric7\", \"master_iv9\", \"Master_Munro\", \"Master_Pump88\", \"MASTER_RUSO\", \"Master_VK3\", \"master_west99\", \"MasterA_2022\", \"masterabexx\", \"MasterAdam111\", \"masteralexwhite\", \"Masterapex6\", \"MasterApolloGod\", \"masterbally0\", \"MasterBaptist\", \"masterbass91\", \"masterbeau69\", \"MasterBigGuns1\", \"MasterBoston\", \"MasterBruisie\", \"mastercalebg\", \"mastercalebg2\", \"MasterCannyon\", \"mastercezar1\", \"masterchad02\", \"masterchad17\", \"MasterCharlie26\", \"masterchris678\", \"MasterConnorv2\", \"mastercoryps\", \"MasterDanDrains\", \"masterdavid1488\", \"MasterDegen7\", \"masterdex01\", \"masterdomm1\", \"MasterDomUK\", \"MasterDondada\", \"masterdream151\", \"Masterdrewski\", \"MasterEdgars\", \"masterenti57530\", \"MasterEric1992\", \"MasterFrank08\", \"MasterGarrison_\", \"mastergasg\", \"MasterHarry27\", \"MasterHarryx1\", \"masterhunter225\", \"MasterJackk1\", \"MasterJacobXL\", \"masterjagger45\", \"MasterJakeJohns\", \"MasterJameLDN\", \"Masterjason25\", \"MasterJax69\", \"Masterjay2003\", \"masterjay_23\", \"masterjayden18\", \"MasterJesse07\", \"masterjett2\", \"masterjock17\", \"masterjock7\", \"Masterjordi93\", \"masterkhai_\", \"MasterKobie32\", \"MasterKS_\", \"MasterKyth\", \"MasterLeBron623\", \"masterlion777\", \"masterlloyd3124\", \"MasterLuke024\", \"MasterMarc14297\", \"mastermasonguy\", \"mastermatty69\", \"MasterMax1994\", \"mastermax690\", \"MasterMi27\", \"mastermikey02\", \"mastermocgn\", \"MasterMonroe69\", \"MasterNick1114\", \"MasterNickKing\", \"MasterNotts\", \"Masterof_Kinks\", \"MasterOne_1\", \"MasterOvrDraft\", \"MasterOwenRT\", \"MasterPaddycash\", \"MasterPheonix41\", \"masterpowerhous\", \"MasterRaidenz\", \"masterrobert11\", \"MasterRoysWorld\", \"MasterRyan69\", \"masterSchmied\", \"MasterSlaterX\", \"MasterSocks123\", \"MasterTFK1\", \"MasterThanoss\", \"MasterThor88\", \"MasterTitanOTN\", \"mastertravis7\", \"MasterTroyxo\", \"MasterTyrone420\", \"MasterViperLord\", \"MasterxCaine\", \"Masterxmk\", \"MasterZach2\", \"MasterZeus18\", \"MattBrody2696\", \"mattmilli0n\", \"maxhung1613\", \"MaxMotive29\", \"MaxxyBackup\", \"MGthealpha\", \"midwestpapa\", \"mikeystonexxx\", \"mikycasiano\", \"MIsaiah_backup\", \"MisterThickRed\", \"mistressavaaof\", \"mll_vinn\", \"MMike712\", \"moff2021\", \"Mr_maxhung\", \"mrf1nd0m\", \"MrGrey_D\", \"MrJavierrr\", \"Mrwelshy92\", \"musclealphabrad\", \"MUSCLEGODCARTER\", \"MuscleGodMarcu1\", \"MuscleGodMark\", \"MxsterChris\", \"MZauggy\", \"Nathjs_98\", \"NaturalMasta\", \"NolanKing23\", \"NorthernAlphaa\", \"Nyxthorn4\", \"Olivproch\", \"OllyAlpha\", \"onendonlydraco\", \"OnlyBzx\", \"onlynudez69\", \"OrientalAlpha_\", \"ovrload23\", \"PapaMidwest\", \"PaySirAlpha\", \"persianprince26\", \"PghZoo\", \"poppers_master\", \"PorcelloNapol96\", \"primeirishbeef\", \"princefrey0\", \"Prof_Daddy_Says\", \"PushupSoldier\", \"realkingtyy\", \"RealPussyMaker\", \"Rickypumpp\", \"rippedriki\", \"RodTheCashGod\", \"rv3021\", \"Ryan123God\", \"sambrucex\", \"SAMMCN\", \"SeanMaster\", \"ServeKingJ\", \"SexyFletch\", \"shanesorber\", \"sharkb0yy13\", \"ShawnFindomGod\", \"shreddedjayy\", \"SirKenzo2\", \"SirLeo99\", \"SirTORO5\", \"Size13CashDaddy\", \"SkinBossPete\", \"smokinonjay\", \"Steevenk11\", \"stezey28\", \"StilDGold\", \"str8_inked_dom\", \"StraightALPHA00\", \"StraightHungMa2\", \"StraightMasterA\", \"SummerForPA\", \"SYorksFootBoy\", \"TasksByZayn\", \"TATTOOED_DOM_\", \"tbrtx13\", \"Th0tBoyG\", \"ThankYourBully\", \"That1Blonde_FD\", \"The920Alpha\", \"the_Luke_York\", \"TheAlphaEdu\", \"thealphaosiris\", \"TheAlphaTitan25\", \"Thebicepsking\", \"Theerwin1_\", \"TheFindomGiant\", \"TheFindomKing\", \"TheGeneticAlpha\", \"TheInfernoKing1\", \"thekingtyler2\", \"thekingtyler__\", \"TheLordMagnuss\", \"themoneychad\", \"themrsink\", \"TheOMGBoss\", \"TheRedHeadAlpha\", \"TheStudEddy\", \"thormusclegod\", \"toes_alpha\", \"Tommy_stag\", \"TommyJCurts_\", \"TreySteel1\", \"tyl3rsfeet\", \"uralphamale10\", \"urljock\", \"USMasterCleetus\", \"vdarkhorsev\", \"Walletowner\", \"WalletRinser1\", \"WalletsForMe\", \"WestCoast_God\", \"xMasterDustin\", \"XXXBradHammer\", \"youngmuscleboss\", \"YoungMusclstud\", \"youpaytobez\", \"yourboyfriend36\", \"YOURGODMATEO\", \"yourkingF\", \"YourMasterFuego\", \"zachary01306057\", \"zackdickinson22\", \"zayndrains\", \"zeusfittwit\", \"zhanecato\", \"ZianGod\"];\n\nvar MAX_QUERY_LEN = 490;\nvar batches = [];\nvar currentBatch = [];\nvar currentLen = 0;\n\nfor (var i = 0; i < HANDLES.length; i++) {\n  var part = 'from:' + HANDLES[i];\n  var addLen = part.length + (currentBatch.length > 0 ? 4 : 0);\n  if (currentLen + addLen + 16 > MAX_QUERY_LEN && currentBatch.length > 0) {\n    batches.push(currentBatch);\n    currentBatch = [part];\n    currentLen = part.length;\n  } else {\n    currentBatch.push(part);\n    currentLen += addLen;\n  }\n}\nif (currentBatch.length > 0) batches.push(currentBatch);\n\nvar items = [];\nfor (var b = 0; b < batches.length; b++) {\n  items.push({\n    json: {\n      batch_index: b,\n      query: '(' + batches[b].join(' OR ') + ') filter:media',\n      handle_count: batches[b].length\n    }\n  });\n}\n\nreturn items;"
       },
-      "id": "fetch-tweets",
-      "name": "Fetch List Tweets",
+      "id": "build-queries",
+      "name": "Build Search Queries",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 100]
+      "position": [
+        280,
+        100
+      ]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [
+        "url": "=https://api.twitterapi.io/twitter/tweet/advanced_search",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "id": "has-media",
-              "leftValue": "={{ $json._empty }}",
-              "rightValue": true,
-              "operator": { "type": "boolean", "operation": "notTrue" }
+              "name": "X-API-Key",
+              "value": "={{ $env.MFC_TWITTERAPI_KEY }}"
             }
-          ],
-          "combinator": "and"
+          ]
         },
-        "options": {}
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "queryType",
+              "value": "Latest"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
       },
-      "id": "has-items",
-      "name": "Has Media Items?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [500, 100]
+      "id": "search-api",
+      "name": "Search twitterapi.io",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract media items from twitterapi.io search results\n// Each input item is one batch search result\n\nvar ALLOWED_CDN = ['pbs.twimg.com', 'video.twimg.com'];\n\nfunction isAllowedMediaUrl(url) {\n  if (!url || typeof url !== 'string') return false;\n  var match = url.match(/^https?:\\/\\/([^/?#]+)/);\n  if (!match) return false;\n  var hostname = match[1].toLowerCase();\n  return ALLOWED_CDN.some(function(h) { return hostname === h || hostname.endsWith('.' + h); });\n}\n\nvar allItems = [];\nvar pages = $input.all();\n\nfor (var p = 0; p < pages.length; p++) {\n  var tweets = pages[p].json.tweets || [];\n  for (var t = 0; t < tweets.length; t++) {\n    var tweet = tweets[t];\n    var media = (tweet.extendedEntities && tweet.extendedEntities.media) || [];\n    if (!media.length) continue;\n\n    var tweetId = tweet.id || '';\n    var handle = (tweet.author && tweet.author.userName) || '';\n    var authorName = (tweet.author && tweet.author.name) || '';\n\n    for (var i = 0; i < media.length; i++) {\n      var m = media[i];\n      var mediaUrl = '';\n      var mediaType = m.type || 'photo';\n\n      if (mediaType === 'photo') {\n        mediaUrl = m.media_url_https || m.media_url || '';\n      } else if (mediaType === 'video' || mediaType === 'animated_gif') {\n        var variants = (m.video_info && m.video_info.variants) || [];\n        var mp4s = variants.filter(function(v) { return v.content_type === 'video/mp4'; });\n        mp4s.sort(function(a, b) { return (b.bitrate || 0) - (a.bitrate || 0); });\n        mediaUrl = mp4s.length > 0 ? mp4s[0].url : '';\n      }\n\n      if (!mediaUrl || !isAllowedMediaUrl(mediaUrl)) continue;\n\n      allItems.push({\n        json: {\n          tweet_id: String(tweetId),\n          media_index: i,\n          tweet_url: 'https://x.com/' + (handle || 'i') + '/status/' + tweetId,\n          author_handle: handle,\n          author_name: authorName,\n          text: tweet.text || '',\n          media_url: mediaUrl,\n          media_type: mediaType,\n          like_count: tweet.likeCount || 0,\n          retweet_count: tweet.retweetCount || 0,\n          view_count: tweet.viewCount || 0,\n          tweeted_at: tweet.createdAt ? new Date(tweet.createdAt).toISOString() : null\n        }\n      });\n    }\n  }\n}\n\nreturn allItems;"
+      },
+      "id": "extract-media",
+      "name": "Extract Media Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ]
     },
     {
       "parameters": {
         "url": "=https://directus.manlyfeet.club/items/scraped_tweets",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "none",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "filter[tweet_id][_eq]", "value": "={{ $json.tweet_id }}" },
-            { "name": "filter[media_index][_eq]", "value": "={{ $json.media_index }}" },
-            { "name": "fields[]", "value": "id" },
-            { "name": "limit", "value": "1" }
+            {
+              "name": "filter[tweet_id][_eq]",
+              "value": "={{ $json.tweet_id }}"
+            },
+            {
+              "name": "filter[media_index][_eq]",
+              "value": "={{ $json.media_index }}"
+            },
+            {
+              "name": "fields[]",
+              "value": "id"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
           ]
         },
         "options": {}
@@ -84,24 +139,28 @@
       "name": "Check Dedup",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [720, 0],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "directus-auth",
-          "name": "Directus API Token"
-        }
-      }
+      "position": [
+        1160,
+        0
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "is-new",
               "leftValue": "={{ $json.data.length }}",
               "rightValue": 0,
-              "operator": { "type": "number", "operation": "equals" }
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -112,32 +171,54 @@
       "name": "Is New?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [940, 0]
+      "position": [
+        1380,
+        0
+      ]
     },
     {
       "parameters": {
-        "url": "={{ $('Fetch List Tweets').item.json.media_url }}",
+        "url": "={{ $('Extract Media Items').item.json.media_url }}",
         "options": {
-          "response": { "response": { "responseFormat": "file" } }
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
         }
       },
       "id": "download-media",
       "name": "Download Media",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1160, 0]
+      "position": [
+        1600,
+        0
+      ]
     },
     {
       "parameters": {
         "url": "https://directus.manlyfeet.club/files",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "none",
         "method": "POST",
         "contentType": "multipart-form-data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.DIRECTUS_TOKEN }}"
+            }
+          ]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "file", "parameterType": "formBinaryData", "inputDataFieldName": "data" }
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            }
           ]
         },
         "options": {}
@@ -146,68 +227,141 @@
       "name": "Upload to Directus Files",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1380, 0],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "directus-auth",
-          "name": "Directus API Token"
-        }
-      }
+      "position": [
+        1820,
+        0
+      ]
     },
     {
       "parameters": {
         "url": "https://directus.manlyfeet.club/items/scraped_tweets",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "authentication": "none",
         "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.DIRECTUS_TOKEN }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"tweet_id\": {{ JSON.stringify($('Fetch List Tweets').item.json.tweet_id) }},\n  \"media_index\": {{ $('Fetch List Tweets').item.json.media_index }},\n  \"tweet_url\": {{ JSON.stringify($('Fetch List Tweets').item.json.tweet_url) }},\n  \"author_handle\": {{ JSON.stringify($('Fetch List Tweets').item.json.author_handle) }},\n  \"author_name\": {{ JSON.stringify($('Fetch List Tweets').item.json.author_name) }},\n  \"text\": {{ JSON.stringify($('Fetch List Tweets').item.json.text) }},\n  \"media\": \"{{ $json.data.id }}\",\n  \"media_type\": {{ JSON.stringify($('Fetch List Tweets').item.json.media_type) }},\n  \"like_count\": {{ $('Fetch List Tweets').item.json.like_count }},\n  \"retweet_count\": {{ $('Fetch List Tweets').item.json.retweet_count }},\n  \"view_count\": {{ $('Fetch List Tweets').item.json.view_count }},\n  \"tweeted_at\": {{ $('Fetch List Tweets').item.json.tweeted_at ? JSON.stringify($('Fetch List Tweets').item.json.tweeted_at) : 'null' }},\n  \"scraped_at\": \"{{ $now.toISO() }}\",\n  \"status\": \"new\"\n}",
+        "jsonBody": "={\n  \"tweet_id\": {{ JSON.stringify($('Extract Media Items').item.json.tweet_id) }},\n  \"media_index\": {{ $('Extract Media Items').item.json.media_index }},\n  \"tweet_url\": {{ JSON.stringify($('Extract Media Items').item.json.tweet_url) }},\n  \"author_handle\": {{ JSON.stringify($('Extract Media Items').item.json.author_handle) }},\n  \"author_name\": {{ JSON.stringify($('Extract Media Items').item.json.author_name) }},\n  \"text\": {{ JSON.stringify($('Extract Media Items').item.json.text) }},\n  \"media\": \"{{ $json.data.id }}\",\n  \"media_type\": {{ JSON.stringify($('Extract Media Items').item.json.media_type) }},\n  \"like_count\": {{ $('Extract Media Items').item.json.like_count }},\n  \"retweet_count\": {{ $('Extract Media Items').item.json.retweet_count }},\n  \"view_count\": {{ $('Extract Media Items').item.json.view_count }},\n  \"tweeted_at\": {{ $('Extract Media Items').item.json.tweeted_at ? JSON.stringify($('Extract Media Items').item.json.tweeted_at) : 'null' }},\n  \"scraped_at\": \"{{ $now.toISO() }}\",\n  \"status\": \"new\"\n}",
         "options": {}
       },
       "id": "create-record",
       "name": "Create Scraped Tweet",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1600, 0],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "directus-auth",
-          "name": "Directus API Token"
-        }
-      }
+      "position": [
+        2040,
+        0
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
     "Daily 6 AM": {
-      "main": [[{ "node": "Fetch List Tweets", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Build Search Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Manual Test Trigger": {
-      "main": [[{ "node": "Fetch List Tweets", "type": "main", "index": 0 }]]
-    },
-    "Fetch List Tweets": {
-      "main": [[{ "node": "Has Media Items?", "type": "main", "index": 0 }]]
-    },
-    "Has Media Items?": {
       "main": [
-        [{ "node": "Check Dedup", "type": "main", "index": 0 }],
-        []
+        [
+          {
+            "node": "Build Search Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Queries": {
+      "main": [
+        [
+          {
+            "node": "Search twitterapi.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search twitterapi.io": {
+      "main": [
+        [
+          {
+            "node": "Extract Media Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Media Items": {
+      "main": [
+        [
+          {
+            "node": "Check Dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Check Dedup": {
-      "main": [[{ "node": "Is New?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Is New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Is New?": {
       "main": [
-        [{ "node": "Download Media", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Download Media",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Download Media": {
-      "main": [[{ "node": "Upload to Directus Files", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Upload to Directus Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Upload to Directus Files": {
-      "main": [[{ "node": "Create Scraped Tweet", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Create Scraped Tweet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
